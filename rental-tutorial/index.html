@@ -1,0 +1,428 @@
+
+<!doctype html>
+
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1.0, user-scalable=yes">
+  <meta name="theme-color" content="#4F7DC9">
+  <meta charset="UTF-8">
+  <title>Rental Management API Example</title>
+  <script src="../../bower_components/webcomponentsjs/webcomponents-lite.js"></script>
+  <link rel="import" href="../../elements/codelab.html">
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Source+Code+Pro:400|Roboto:400,300,400italic,500,700|Roboto+Mono">
+  <style is="custom-style">
+    body {
+      font-family: "Roboto",sans-serif;
+      background: var(--google-codelab-background, #F8F9FA);
+    }
+  </style>
+  
+</head>
+<body unresolved class="fullbleed">
+
+  <google-codelab title="Rental Management API Example"
+                  environment="web"
+                  feedback-link="">
+    
+      <google-codelab-step label="Introduction" duration="5">
+          This tutorial is a step-by-step configuration of an application that integrates with the RemoteLock API to manage access to rental properties or rooms. In the next steps we will go over:  <ul>
+<li>Creating an OAuth Application in the developer portal</li>
+<li>Customer Authentication via OAuth</li>
+<li>Retrieving the list of registered locks</li>
+<li>Generating Access User and Guest codes</li>
+<li>Getting confirmation that access is granted with a Webhook Subscription (optional)</li>
+<li>Working with ResortLocks (optional)</li>
+</ul>
+  Throughout this tutorial you will see links to different parts of the documentation. It is more detailed and can be used for troubleshooting or if you have a different use case from what’s presented here.  <h3>What you’re going to need</h3>
+  <ul>
+<li>A valid account on the Connect Portal</li>
+<li>A registered RemoteLock</li>
+<li>A Tool to send and inspect HTTP requests. In the examples, we will use ‘curl’, which is available in all operating systems, but feel free to use any tool you’re more familiar with - as long as it’s TLS (HTTPS) enabled</li>
+<li>Optional: a separate account to represent a “customer account” - if you have one, you should register your lock here for testing</li>
+</ul>
+  
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Creating an OAuth Application" duration="5">
+          Go to the <a href="https://developer.lockstate.com/" target="_blank">developer portal</a>, click on “New OAuth Application” and fill the form:  <ul>
+<li>Name: The name of your application. In the examples here we’ll use “My Rental Application”</li>
+<li>Redirect URI: When the user authorizes your application, they will be redirected to this URL with an authorization code. With this code your application will be able to generate a token to make authenticated requests for the resources of that user. In this example we’ll use a special value for testing and non-web applications: ‘urn:ietf:wg:oauth:2.0:oob’. It causes the endpoint to just output a JSON with the authorization code after user authorization.</li>
+</ul>
+  After submitting the form, you will be redirected to a page with your generated <strong>Client ID</strong> and <strong>Client Secret</strong>. These are the credentials for your integration, so make sure you take note and keep them in a secure place. <strong>For security reasons, this is the only time the client secret is visible.</strong>  
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Authenticating a User" duration="15">
+          <h3>Generating an Authorization Code</h3>
+  The RemoteLock API supports two of the OAuth 2.0 grant types: <strong>Authorization Code</strong> and <strong>Client Credentials</strong>. On this example, since you want your users to authorize your application to manage their locks, we will use the <strong>Authorization Code</strong> Grant. You can check the <a href="https://connect.lockstate.com/api/docs#authentication-section" target="_blank">Authentication Section</a> of the documentation for more details on the two types of grants.  With your OAuth application created, your users can be redirected to the authorization URL to allow your application to access their resources. The URL must be formatted as below:  <pre><code>https://connect.devicewebmanager.com/oauth/authorize?client_id=CLIENT_ID&amp;redirect_uri=REDIRECT_URI&amp;response_type=code
+</code></pre>
+  Replacing <code>CLIENT_ID</code> and <code>REDIRECT_URI</code> with values from the OAuth Application you just created. If you view your application on the developer portal, you will see an “Authorize” button next to the redirect URI that takes you to a generated URL using the above format. If you have created a separate account to represent a customer, you should go to that URL using an incognito / private mode, so you can sign in using that account and not your current one.  Once you go to this URL, you will either see a sign in page or, if you’re already logged in, a list of accounts. Unless you have access to shared accounts, this list should only have one pre-selected option, so all you need to do is click “Authorize”. If our Redirect URI was set to a URL on an application, that is where we would’ve been taken now, but since we’ve used <code>urn:ietf:wg:oauth:2.0:oob</code>, what you should see is a JSON result like so:  <pre><code language="json" class="json">  {&#34;code&#34;:&#34;a1b2...d4e5&#34;,&#34;state&#34;:&#34;&#34;}
+</code></pre>
+  The value in the <code>code</code> attribute is what we call your <strong>authorization code</strong>, we’ll use it to generate a token to access a user’s data.  <h3>Generating a Token</h3>
+  To generate a token, we must send the authorization code in a <code>POST</code> request like the following:  <pre><code language="bash" class="bash">curl -X POST \
+  -d code=$AUTHORIZATION_CODE \
+  -d client_id=$CLIENT_ID \
+  -d client_secret=$CLIENT_SECRET \
+  -d redirect_uri=urn:ietf:wg:oauth:2.0:oob \
+  -d grant_type=authorization_code \
+  &#39;https://connect.devicewebmanager.com/oauth/token&#39;
+</code></pre>
+  Replacing <code>$AUTHORIZATION_CODE</code>, <code>$CLIENT_ID</code> and <code>$CLIENT_SECRET</code> with their respective values. The response should look like the following:  <pre><code language="json" class="json">{
+  &#34;access_token&#34;: &#34;acc3...063n&#34;,
+  &#34;token_type&#34;: &#34;bearer&#34;,
+  &#34;expires_in&#34;: 7199,
+  &#34;refresh_token&#34;: &#34;13f1...ab14&#34;,
+  &#34;created_at&#34;: 1531403248
+}
+</code></pre>
+   <aside class="warning">The access token expires after 2 hours. Once that happens, you should use the refresh token to generate a new access token. Refer to the Authentication Section (https://connect.lockstate.com/api/docs#authentication-section) of the documentation for more details.</aside>
+   The value in the <code>access_token</code> attribute of that response is what we’ll use as authorization in the API requests to manipulate that user’s resources in the next steps.  
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Retrieving the List of Locks" duration="5">
+          The next step is to retrieve the list of locks in the account so that your user can assign them to Rooms/Units in your application. To fetch that list, use the following request:  <pre><code language="bash" class="bash">curl -H &#39;Authorization: Bearer $ACCESS_TOKEN&#39; \
+  -H &#39;Accept: application/vnd.lockstate+json; version=1&#39; \
+  &#39;https://api.lockstate.com/devices?type[]=lock&amp;type[]=resort_lock&#39;
+</code></pre>
+  Replacing <code>$ACCESS_TOKEN</code> in the authorization header with the value we generated in the previous step. Notice how an additional header is required to specify the API version we’re using. See the <a href="https://connect.lockstate.com/api/docs#versioning-section" target="_blank">API Versioning</a> section of the documentation for more details. In this request we used the <code>/devices</code> endpoint with a filter on <code>type</code>, our documentation also has more information on <a href="https://connect.lockstate.com/api/docs#filtering-section" target="_blank">Filtering</a> and <a href="https://connect.lockstate.com/api/docs#devices-get-all-devices" target="_blank">Listing Devices</a>. Notice that we have two types on the filter, <code>lock</code> and <code>resort_lock</code>. That’s because ResortLocks work in a different way from Wi-Fi connected locks; the next steps are focused on the latter, but there’s a section in the end for <strong>Working with ResortLocks</strong>.  The response should look like this:  <pre><code language="json" class="json">{
+   &#34;data&#34;:[
+      {
+         &#34;type&#34;:&#34;lock&#34;,
+         &#34;attributes&#34;:{
+            &#34;name&#34;:&#34;My Lock&#34;,
+            &#34;heartbeat_interval&#34;:1200,
+            // ...
+            &#34;model_id&#34;:&#34;1d99dded-91ce-47ed-90e4-84389e783a92&#34;,
+            &#34;location_id&#34;:&#34;38e651b3-9944-4539-be3b-13203b61d638&#34;
+         },
+         &#34;id&#34;:&#34;053994ef-ceed-455a-a5f7-7962261a722d&#34;,
+         &#34;links&#34;:{
+            // ...
+         },
+         &#34;meta&#34;:{
+           // ...
+         }
+      },
+      // ...
+   ],
+   &#34;meta&#34;:{
+     // ...
+   }
+}
+</code></pre>
+   <aside class="special">You can use a tool like JSON Formatter (https://jsonformatter.curiousconcept.com/) or jq (https://stedolan.github.io/jq/) to make the JSON responses easier to read.</aside>
+   In this response, each entry in the <code>data</code> array is a Lock. The most important value we need to consider here is the <code>id</code> and <code>type</code>, as we will need them to assign an <strong>accessible</strong> when granting access, so this is what your application should keep track of.  For more information on the JSON structure of requests and responses, refer to the <a href="https://connect.lockstate.com/api/docs#json-overview-section" target="_blank">JSON Structure</a> section of the documentation.  
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Granting Door Access to an User" duration="5">
+          Granting access is done in two steps:  <ol start="1">
+<li>Create an Access User (we’ll also create an Access Guest in the next step) with a credential that can be used on the lock.</li>
+<li>Grant that Acces User access to the lock.</li>
+</ol>
+  <h3>Create an Access User</h3>
+  To create an Access User, send the following <code>POST</code> request:  <pre><code language="bash" class="bash">curl -X POST \
+  -H &#39;Authorization: Bearer $ACCESS_TOKEN&#39; \
+  -H &#39;Accept: application/vnd.lockstate+json; version=1&#39; \
+  -H &#39;Content-Type: application/json&#39; \
+  -d &#39;{
+    &#34;type&#34;: &#34;access_user&#34;,
+    &#34;attributes&#34;: {
+      &#34;name&#34;: &#34;Example User&#34;,
+      &#34;generate_pin&#34;: true
+    }
+  }&#39; \
+  &#39;https://api.lockstate.com/access_persons&#39;
+</code></pre>
+  Replacing <code>$ACCESS_TOKEN</code> in the authorization header with the value we generated in the authentication step. Keep in mind that POST and PUT requests require an additional <code>Content-Type: application/json</code> header. You will get a response that looks like this:  <pre><code language="json" class="json">{
+  &#34;data&#34;: {
+    &#34;type&#34;: &#34;access_user&#34;,
+    &#34;attributes&#34;: {
+      &#34;name&#34;: &#34;Example User&#34;,
+      &#34;pin&#34;: &#34;2155&#34;,
+      // ...
+      &#34;created_at&#34;: &#34;2018-07-12T21:05:30Z&#34;,
+      &#34;updated_at&#34;: &#34;2018-07-12T21:05:30Z&#34;
+    },
+    &#34;id&#34;: &#34;1864e7e5-2475-44ab-9dfe-2912469fc1b2&#34;,
+    &#34;links&#34;: {
+      // ...
+    }
+  }
+}
+</code></pre>
+  Notice that since we used <code>&#34;generate_pin&#34;: true</code>, a PIN was generated. You could set your own PIN, along with other options for users, all listed in the documentation for <a href="https://connect.lockstate.com/api/docs#access-persons-create-an-access-user" target="_blank">creating an access user</a>. The most important value in this response is the <code>id</code>. We’ll be using it, together with the lock’s <code>id</code> and <code>type</code> we have from the previous step to grant this newly created user access to our lock.  <h3>Grant Access</h3>
+  To grant access, send the following POST request:  <pre><code language="bash" class="bash">curl -X POST \
+  -H &#39;Authorization: Bearer $ACCESS_TOKEN&#39; \
+  -H &#39;Accept: application/vnd.lockstate+json; version=1&#39; \
+  -H &#39;Content-Type: application/json&#39; \
+  -d &#39;{
+    &#34;attributes&#34;: {
+      &#34;accessible_id&#34;: &#34;053994ef-ceed-455a-a5f7-7962261a722d&#34;,
+      &#34;accessible_type&#34;: &#34;lock&#34;
+    }
+  }&#39; \
+  &#39;https://api.lockstate.com/access_persons/1864e7e5-2475-44ab-9dfe-2912469fc1b2/accesses&#39;
+</code></pre>
+  There are a few more things to replace on this step:  <ul>
+<li>The usual ‘$ACCESS_TOKEN’</li>
+<li>‘accessible_id’ and ‘accessible_type’ must use the values you’ve got for your lock from the device listing.</li>
+<li>The id we just got from creating the access user is used in the URL, so make sure you replace that with the one you’ve got from the previous step.</li>
+</ul>
+  For more options and details, refer to the documentation section on <a href="https://connect.lockstate.com/api/docs#access-persons-grant-an-access-person-access" target="_blank">granting access</a>.  The response will look like this:  <pre><code language="json" class="json">{
+  &#34;data&#34;: {
+    &#34;type&#34;: &#34;access_person_access&#34;,
+    &#34;attributes&#34;: {
+      // ...
+      &#34;access_person_id&#34;: &#34;1864e7e5-2475-44ab-9dfe-2912469fc1b2&#34;,
+      &#34;access_person_type&#34;: &#34;access_user&#34;,
+      &#34;accessible_id&#34;: &#34;053994ef-ceed-455a-a5f7-7962261a722d&#34;
+    },
+    &#34;id&#34;: &#34;c5d4ef02-1538-4924-990e-21e40dd0d5a6&#34;,
+    &#34;links&#34;: {
+      // ...
+    }
+  }
+}
+</code></pre>
+  Your user is all set! The next time the lock wakes up, this new code will be synchronized and usable to lock/unlock your lock.  
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Granting Door Access to a Guest" duration="5">
+           <aside class="warning">Note: This method only work for the Wi-Fi enabled RemoteLocks. If you need to work with the ResortLock algorithmic lock, refer to the ‘Working with ResortLocks’ section.</aside>
+   This step is very similar to the previous one. In fact, the only difference is that in the first part, you’ll be creating an <strong>Access Guest</strong> instead of an <strong>Access User</strong>. The main difference between those is that Guests require two additional attributes: <code>starts_at</code> and <code>ends_at</code>, to set the time period during which that Guest has access.  <h3>Create an Access Guest</h3>
+  To create an Access Guest, send the following <code>POST</code> request:  <pre><code language="bash" class="bash">curl -X POST \
+  -H &#39;Authorization: Bearer $ACCESS_TOKEN&#39; \
+  -H &#39;Accept: application/vnd.lockstate+json; version=1&#39; \
+  -H &#39;Content-Type: application/json&#39; \
+  -d &#39;{
+    &#34;type&#34;: &#34;access_guest&#34;,
+    &#34;attributes&#34;: {
+      &#34;starts_at&#34;: &#34;2020-01-02T16:04:00&#34;,
+      &#34;ends_at&#34;: &#34;2021-01-02T16:04:00&#34;,
+      &#34;name&#34;: &#34;My Guest&#34;,
+      &#34;pin&#34;: &#34;4567&#34;
+    }
+  }&#39; \
+  &#39;https://api.lockstate.com/access_persons&#39;
+</code></pre>
+  Replacing <code>$ACCESS_TOKEN</code> in the authorization header with the value we generated in the authentication step. Feel free to change the <code>starts_at</code> and <code>ends_at</code> values. Notice that the time format on those  do not include a timezone. The effective timezone is the one configured at the lock. You will get a response that looks like this:  <pre><code language="json" class="json">{
+  &#34;data&#34;: {
+    &#34;type&#34;: &#34;access_guest&#34;,
+    &#34;attributes&#34;: {
+      &#34;name&#34;: &#34;My Guest&#34;,
+      &#34;pin&#34;: &#34;4567&#34;,
+      // ..
+      &#34;starts_at&#34;: &#34;2020-01-02T16:04:00&#34;,
+      &#34;ends_at&#34;: &#34;2021-01-02T16:04:00&#34;
+    },
+    &#34;id&#34;: &#34;036aa265-d008-4c1a-942d-905e7f2ec3e2&#34;,
+    &#34;links&#34;: {
+      // ...
+    }
+  }
+}
+</code></pre>
+  The most important value in this response is the <code>id</code>. We’ll be using it, together with the lock’s <code>id</code> and <code>type</code> we have from the previous step to grant this newly created user access to our lock.  For more information see the documentation section for <a href="https://connect.lockstate.com/api/docs#access-persons-create-an-access-guest" target="_blank">creating an access guest</a>.  <h3>Grant access</h3>
+  Now all you need to do is grant access using that Access Guest’s <code>id</code>, just like you did before with the Access User. To grant access, send the following POST request:  <pre><code language="bash" class="bash">curl -X POST \
+  -H &#39;Authorization: Bearer $ACCESS_TOKEN&#39; \
+  -H &#39;Accept: application/vnd.lockstate+json; version=1&#39; \
+  -H &#39;Content-Type: application/json&#39; \
+  -d &#39;{
+    &#34;attributes&#34;: {
+      &#34;accessible_id&#34;: &#34;053994ef-ceed-455a-a5f7-7962261a722d&#34;,
+      &#34;accessible_type&#34;: &#34;lock&#34;
+    }
+  }&#39; \
+  &#39;https://api.lockstate.com/access_persons/036aa265-d008-4c1a-942d-905e7f2ec3e2/accesses&#39;
+</code></pre>
+  Replacing <code>$ACCESS_TOKEN</code> in the authorization header with the value we generated in the authentication step. And the response will look like this:  <pre><code language="json" class="json">{
+  &#34;data&#34;: {
+    &#34;type&#34;: &#34;access_person_access&#34;,
+    &#34;attributes&#34;: {
+      // ...
+      &#34;accessible_type&#34;: &#34;lock&#34;,
+      &#34;access_person_id&#34;: &#34;036aa265-d008-4c1a-942d-905e7f2ec3e2&#34;,
+      &#34;access_person_type&#34;: &#34;access_guest&#34;,
+      &#34;accessible_id&#34;: &#34;053994ef-ceed-455a-a5f7-7962261a722d&#34;
+    },
+    &#34;id&#34;: &#34;6786a08e-665e-4722-a68f-a6b41fa129a0&#34;,
+    &#34;links&#34;: {
+      // ...
+    }
+  }
+}
+</code></pre>
+  Your guest is all set! The next time the lock wakes up, this new code will be synchronized and usable to lock/unlock your lock within that specified time period.  
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Webhook Notification Subscriptions (Optional)" duration="10">
+          Your application might need to be informed of events as they happen in the user’s account, like when one of the codes is synchronized with a lock, or when access is denied. The best way to do that is by creating a webhook notification subscription, so that as events happen, an URL in your application is sent data about the event for your application to act upon. In this example, you will create a webhook that will be triggered when an access is synchronized with the lock you’ve selected previously.  <h3>Create a Webhook Notification Subscriber</h3>
+  The first step is to create a Notification Subscriber. Send the following POST request:  <pre><code language="bash" class="bash">curl -X POST \
+  -H &#39;Authorization: Bearer $ACCESS_TOKEN&#39; \
+  -H &#39;Accept: application/vnd.lockstate+json; version=1&#39; \
+  -H &#39;Content-Type: application/json&#39; \
+  -d &#39;{
+    &#34;type&#34;: &#34;webhook_notification_subscriber&#34;,
+    &#34;attributes&#34;: {
+      &#34;active&#34;: true,
+      &#34;name&#34;: &#34;My webhook&#34;,
+      &#34;url&#34;: &#34;https://myrentalapplication.com/my_webhook_example&#34;,
+      &#34;content_type&#34;: &#34;json&#34;,
+      &#34;secret&#34;: &#34;oRWQWqQ0sn5xugpl&#34;
+    }
+  }&#39; \
+  &#39;https://api.lockstate.com/notification_subscribers&#39;
+</code></pre>
+  Where the <code>url</code> must be a valid endpoint of your application able to handle this request. Make sure you review the requirements, along with a few more options for configuring webhooks in the documentation section about <a href="https://connect.lockstate.com/api/docs#notification-subscribers-create-a-webhook-notification-subscriber" target="_blank">creating a webhook notification subscriber</a>. The response should look like this:  <pre><code language="json" class="json">{
+  &#34;data&#34;: {
+    &#34;type&#34;: &#34;webhook_notification_subscriber&#34;,
+    &#34;attributes&#34;: {
+      &#34;name&#34;: &#34;My webhook&#34;,
+      &#34;url&#34;: &#34;https://myrentalapplication.com/my_webhook_example&#34;,
+      &#34;content_type&#34;: &#34;json&#34;,
+      &#34;secret&#34;: &#34;oRWQWqQ0sn5xugpl&#34;,
+      &#34;active&#34;: true,
+      &#34;created_at&#34;: &#34;2018-07-13T14:37:17Z&#34;,
+      &#34;updated_at&#34;: &#34;2018-07-13T14:37:17Z&#34;
+    },
+    &#34;id&#34;: &#34;df4e347b-b885-47da-b627-59d0b4b47807&#34;,
+    &#34;links&#34;: {
+      // ...
+    }
+  }
+}
+</code></pre>
+  <h3>Create a Notification Subscription</h3>
+  With the Subscriber configured, you now can associate it with event types and a publisher. In this case we’ll create a Notification Subscription for the <code>access_person_synced</code> event using the lock <code>id</code> and <code>type</code> as a publisher. Send the following <code>POST</code> request:  <pre><code language="bash" class="bash">curl -X POST \
+  -H &#39;Authorization: Bearer $ACCESS_TOKEN&#39; \
+  -H &#39;Accept: application/vnd.lockstate+json; version=1&#39; \
+  -H &#39;Content-Type: application/json&#39; \
+  -d &#39;{
+    &#34;attributes&#34;: {
+      &#34;events&#34;: [
+        {
+          &#34;event_type&#34;: &#34;access_person_synced&#34;
+        }
+      ],
+      &#34;publisher_type&#34;: &#34;lock&#34;,
+      &#34;publisher_id&#34;: &#34;053994ef-ceed-455a-a5f7-7962261a722d&#34;,
+      &#34;subscriber_type&#34;: &#34;webhook_notification_subscriber&#34;,
+      &#34;subscriber_id&#34;: &#34;df4e347b-b885-47da-b627-59d0b4b47807&#34;
+    }
+  }&#39; \
+  &#39;https://api.lockstate.com/notification_subscriptions&#39;
+</code></pre>
+  Don’t forget to replace <code>$ACCESS_TOKEN</code> with your generated value. Notice that the <code>publisher_id</code>and <code>publisher_type</code> here are the values from our lock, and the <code>subscriber_id</code> and <code>subscriber_type</code>, values for the webhook subscriber created in the previous step. It’s worth mentioning that multiple event types can be configured, and the publisher can be a broader scope, like a Location or even the entire Account. For more details, see the documentation section on <a href="https://connect.lockstate.com/api/docs#notification-subscriptions-create-a-notification-subscription" target="_blank">creating notification subscriptions</a>. You will get a response similar to the one below:  <pre><code language="json" class="json">{
+  &#34;data&#34;: {
+    &#34;type&#34;: &#34;notification_subscription&#34;,
+    &#34;attributes&#34;: {
+      &#34;events&#34;: [
+        {
+          &#34;event_type&#34;: &#34;access_person_synced&#34;
+        }
+      ],
+      &#34;created_at&#34;: &#34;2018-07-13T14:54:11Z&#34;,
+      &#34;updated_at&#34;: &#34;2018-07-13T14:54:11Z&#34;,
+      &#34;subscriber_id&#34;: &#34;df4e347b-b885-47da-b627-59d0b4b47807&#34;,
+      &#34;subscriber_type&#34;: &#34;webhook_notification_subscriber&#34;,
+      &#34;publisher_id&#34;: &#34;053994ef-ceed-455a-a5f7-7962261a722d&#34;,
+      &#34;publisher_type&#34;: &#34;lock&#34;
+    },
+    &#34;id&#34;: &#34;09491f96-da50-4ae1-8d29-390e5397d5ad&#34;,
+    &#34;links&#34;: {
+      // ...
+    }
+  }
+}
+</code></pre>
+  Now, whenever that event happens on that lock, a <code>POST</code> request will be sent to the configured URL with a body similar to the one below:  <pre><code language="json" class="json">code</code></pre>
+  
+
+      </google-codelab-step>
+    
+      <google-codelab-step label="Working with ResortLocks (Optional)" duration="5">
+          The process for granting access to ResortLocks work differently from what was described in the previous step, as they use algorithmic codes instead of synchronizing codes over Wi-Fi. If you have a registered ResortLock, the list of devices in the response from the <code>/devices</code> endpoint should include an objectsimilar to this one in the <code>data</code> array:  <pre><code language="json" class="json">{
+  &#34;type&#34;: &#34;resort_lock&#34;,
+  &#34;attributes&#34;: {
+    &#34;name&#34;: &#34;My ResortLock&#34;,
+    // ...
+  },
+  &#34;id&#34;: &#34;ed1b7a1b-0dc5-4081-8658-728d96ed0dde&#34;,
+  &#34;links&#34;: {
+    // ...
+  }
+}
+</code></pre>
+  To create a guest for this ResortLock, send the following <code>POST</code> request:  <pre><code language="bash" class="bash">curl -X POST \
+  -H &#39;Authorization: Bearer $ACCESS_TOKEN&#39; \
+  -H &#39;Accept: application/vnd.lockstate+json; version=1&#39; \
+  -H &#39;Content-Type: application/json&#39; \
+  -d &#39;{
+    &#34;attributes&#34;: {
+      &#34;resort_lock_id&#34;: &#34;ed1b7a1b-0dc5-4081-8658-728d96ed0dde&#34;,
+      &#34;name&#34;: &#34;My ResortLock Guest&#34;,
+      &#34;starts_at&#34;: &#34;2020-01-02T13:00:00&#34;,
+      &#34;ends_at&#34;: &#34;2021-01-02T16:00:00&#34;
+    }
+  }&#39; \
+  &#39;https://api.lockstate.com/resort_lock_guests&#39;
+</code></pre>
+  Replacing <code>$ACCESS_TOKEN</code> in the authorization header with the value we generated in the authentication step, and the value for <code>resort_lock_id</code> with the id for your ResortLock. This guest will only have access between the times in <code>starts_at</code> and <code>ends_at</code>, and those should not use minutes or seconds - any value here will be converted to 0. Refer to the <a href="https://connect.lockstate.com/api/docs#resort-lock-guests-get-all-resort-lock-guests" target="_blank">Resort Lock Guests</a> documentation section for more information.  The response will look like this:  <pre><code language="json" class="json">{
+  &#34;data&#34;: {
+    &#34;type&#34;: &#34;resort_lock_guest&#34;,
+    &#34;attributes&#34;: {
+      &#34;name&#34;: &#34;My ResortLock Guest&#34;,
+      &#34;pin&#34;: &#34;123456789012&#34;,
+      &#34;starts_at&#34;: &#34;2020-01-02T13:00:00&#34;,
+      &#34;ends_at&#34;: &#34;2021-01-02T16:00:00&#34;,
+      // ...
+      &#34;resort_lock_id&#34;: &#34;ed1b7a1b-0dc5-4081-8658-728d96ed0dde&#34;
+    },
+    &#34;id&#34;: &#34;f66610b0-a73f-4cee-9ba5-eafd73f80e4d&#34;,
+    &#34;links&#34;: {
+      // ...
+    }
+  }
+}
+</code></pre>
+  The PIN for that guest is the <code>pin</code> value in the response. In the above example, <code>123456789012</code>. 
+
+      </google-codelab-step>
+    
+  </google-codelab>
+
+  <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+    ga('create', 'UA-49880327-14', 'auto');
+
+    (function() {
+      var gaCodelab = '';
+      if (gaCodelab) {
+        ga('create', gaCodelab, 'auto', {name: 'codelab'});
+      }
+
+      var gaView;
+      var parts = location.search.substring(1).split('&');
+      for (var i = 0; i < parts.length; i++) {
+        var param = parts[i].split('=');
+        if (param[0] === 'viewga') {
+          gaView = param[1];
+          break;
+        }
+      }
+      if (gaView && gaView !== gaCodelab) {
+        ga('create', gaView, 'auto', {name: 'view'});
+      }
+    })();
+  </script>
+
+</body>
+</html>
