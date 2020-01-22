@@ -1,0 +1,39 @@
+:root {
+  --color-background: white;
+  --color-text: hsl(204, 11%, 18%);
+  --color-link: hsl(207, 90%, 49%);
+  --color-link-visited: hsl(269, 75%, 38%);
+}
+
+.dark {
+  --color-background: hsl(240, 100%, 0%);
+  --color-text: hsl(220, 16%, 98%);
+  --color-link: hsl(204, 98%, 77%);
+  --color-link-visited: hsl(266, 83%, 77%);
+}
+
+html {
+  background-color: var(--color-background);
+  color: var(--color-text);
+}
+
+a {
+  color: var(--color-link);
+}
+
+a:visited {
+  color: var(--color-link-visited);
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    'Segoe UI Symbol';
+  line-height: 1.6;
+}
+
+#root {
+  margin: 15px;
+  max-width: 70ch;
+}
